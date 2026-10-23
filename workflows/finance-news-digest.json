@@ -1,0 +1,338 @@
+{
+  "name": "03 - Finance news digest",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "7c602985-b1f0-4108-85a1-53314ef16a55",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -96,
+        144
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "1c1167d5-160a-40c4-b1c3-d9c8451fcdee",
+      "name": "Fetch all feeds",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        112,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://feeds.bbci.co.uk/news/business/rss.xml",
+        "options": {}
+      },
+      "id": "000e14be-b8ad-48ac-b2a4-e9b333f9b92d",
+      "name": "BBC Business",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        336,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://www.dawn.com/feeds/business",
+        "options": {}
+      },
+      "id": "dfdae6c9-aff1-41dd-9c1a-a9327a20ed73",
+      "name": "Dawn Business",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        336,
+        128
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664",
+        "options": {}
+      },
+      "id": "4d0a492f-4cfb-4e01-8b21-f55098a2ab0d",
+      "name": "CNBC Finance",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        336,
+        304
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "id": "1202dcbc-f30b-4e1a-88c6-c263bbd46e5c",
+      "name": "Merge",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        624,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst names = { 'bbc': 'BBC Business', 'dawn': 'Dawn Business', 'cnbc': 'CNBC Finance' };\nconst grouped = {};\n\nfor (const item of items) {\n  const j = item.json;\n  const link = j.link || '';\n  const host = (link.match(/https?:\\/\\/([^\\/]+)/) || [])[1] || 'unknown';\n  const key = Object.keys(names).find(k => host.includes(k)) || host;\n  const source = names[key] || host;\n  if (!grouped[source]) grouped[source] = [];\n  grouped[source].push(j);\n}\n\nlet text = '';\nlet count = 0;\nfor (const [source, list] of Object.entries(grouped)) {\n  list.sort((a, b) => new Date(b.isoDate || 0) - new Date(a.isoDate || 0));\n  text += `## ${source}\\n`;\n  for (const a of list.slice(0, 6)) {\n    const snippet = (a.contentSnippet || '').replace(/\\s+/g, ' ').slice(0, 200);\n    text += `- ${a.title} | ${snippet} | ${a.link}\\n`;\n    count++;\n  }\n  text += '\\n';\n}\n\nreturn [{ json: { headlines: text.trim(), count } }];"
+      },
+      "id": "b1936993-23ea-4fa3-98a2-a5618b1cc1b4",
+      "name": "Prepare headlines",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        848,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a concise finance news editor. Below are today's headlines from three sources.\n\nWrite an email digest in simple HTML (use only <h3>, <p>, <ul>, <li>, <a>, <b>). Structure:\n1. <h3>Top 3 stories</h3> with one sentence each on why it matters.\n2. <h3>Markets and economy</h3> with 3 to 5 bullets.\n3. <h3>Pakistan focus</h3> with bullets from Dawn only, if any.\n4. Every bullet must end with a link to the original article, using the link given.\n\nRules: use only the information given, do not invent numbers or facts, no investment advice, and keep the whole digest under 300 words.\n\nHeadlines:\n{{ $json.headlines }}",
+        "batching": {}
+      },
+      "id": "713c527d-2a59-4b7c-8e45-242bafaaca9b",
+      "name": "Summarize News",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1104,
+        112
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash-lite",
+        "options": {}
+      },
+      "id": "38e75d16-b5aa-4678-a29a-57d76e8927af",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        1104,
+        288
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "YOUR_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = ($json.text || '').replace(/\\x60{3}(html)?/gi, '').trim();\nconst count = $('Prepare headlines').first().json.count || 0;\nconst dateStr = $now.setZone('Asia/Karachi').toFormat('cccc, d LLLL yyyy');\n\nconst edition = $now.setZone('Asia/Karachi').toFormat('ccc d LLL');\nconst timeStr = $now.setZone('Asia/Karachi').toFormat('HH:mm');\nconst mono = 'font-family:Consolas,Menlo,Courier New,monospace;';\nconst label = 'font-family:Trebuchet MS,Verdana,Tahoma,sans-serif;';\nconst serif = 'font-family:Georgia,Cambria,Times New Roman,serif;';\nconst body = 'font-family:Segoe UI,Helvetica,Arial,sans-serif;';\n\nconst accents = [\n  { c: '#22d3ee', g: 'linear-gradient(90deg,#22d3ee,#818cf8)', icon: '&#9670;', bg: '#072a36', item: '#0b3a4a', badge: '#0e7490' },\n  { c: '#d8b4fe', g: 'linear-gradient(90deg,#c084fc,#f472b6)', icon: '&#9650;', bg: '#22123d', item: '#2e1a52', badge: '#7e22ce' },\n  { c: '#6ee7b7', g: 'linear-gradient(90deg,#34d399,#22d3ee)', icon: '&#9679;', bg: '#06291f', item: '#0b3b2d', badge: '#047857' },\n  { c: '#fcd34d', g: 'linear-gradient(90deg,#fbbf24,#fb7185)', icon: '&#9733;', bg: '#2e2108', item: '#3d2c0c', badge: '#b45309' }\n];\n\nconst styleContent = (html, a) => html\n  .replace(/<ul[^>]*>/gi, '<ul style=\"margin:0;padding-left:0;list-style:none;\">')\n  .replace(/<li[^>]*>/gi, '<li style=\"' + body + 'margin:0 0 14px;padding:16px 18px;background-color:' + a.item + ';border-left:5px solid ' + a.c + ';border-radius:12px;line-height:1.7;color:#f1f5f9;font-size:18px;\">')\n  .replace(/<p[^>]*>/gi, '<p style=\"' + body + 'margin:0 0 14px;padding:16px 18px;background-color:' + a.item + ';border-left:5px solid ' + a.c + ';border-radius:12px;line-height:1.7;color:#f1f5f9;font-size:18px;\">')\n  .replace(/<(b|strong)>/gi, '<b style=\"' + serif + 'color:' + a.c + ';font-size:20px;font-weight:700;\">')\n  .replace(/<\\/strong>/gi, '</b>')\n  .replace(/<a /gi, '<a target=\"_blank\" style=\"' + label + 'display:inline-block;margin-top:6px;padding:4px 12px;background-color:' + a.badge + ';color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;letter-spacing:0.5px;border-radius:999px;\" ')\n  .replace(/>Read more</gi, '>Read more &#8599;<');\n\nconst parts = raw.split(/<h3[^>]*>/i).filter(s => s.trim());\nlet cards = '';\nparts.forEach((part, i) => {\n  const a = accents[i % accents.length];\n  const end = part.toLowerCase().indexOf('</h3>');\n  const title = end >= 0 ? part.slice(0, end).replace(/<[^>]+>/g, '').trim() : '';\n  const content = (end >= 0 ? part.slice(end + 5) : part).trim();\n  if (!title && !content) return;\n  cards += '<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin:0 0 22px;background-color:' + a.bg + ';border:1px solid ' + a.badge + ';border-radius:18px;overflow:hidden;\">'\n    + '<tr><td style=\"height:5px;line-height:5px;font-size:0;background-color:' + a.c + ';background-image:' + a.g + ';\">&nbsp;</td></tr>'\n    + '<tr><td style=\"padding:22px 24px 10px;\">'\n    + (title ? '<div style=\"margin-bottom:18px;\"><span style=\"' + label + 'display:inline-block;padding:6px 14px;background-color:' + a.badge + ';color:#ffffff;font-size:14px;font-weight:700;letter-spacing:2px;border-radius:8px;\">' + a.icon + '&nbsp; 0' + (i + 1) + '</span>'\n      + '<span style=\"' + serif + 'display:inline-block;margin-left:12px;font-size:24px;font-weight:700;color:' + a.c + ';vertical-align:middle;\">' + title + '</span></div>' : '')\n    + styleContent(content, a)\n    + '</td></tr></table>';\n});\n\nconst chip = (name, value, fill, txt) => '<td width=\"33%\" style=\"padding:0 5px;\"><div style=\"background-color:' + fill + ';border-radius:14px;padding:14px 8px;text-align:center;\">'\n  + '<div style=\"' + label + 'font-size:13px;font-weight:700;letter-spacing:2px;color:' + txt + ';\">' + name + '</div>'\n  + '<div style=\"' + serif + 'font-size:24px;font-weight:700;color:#ffffff;margin-top:6px;\">' + value + '</div></div></td>';\n\nconst html = '<!DOCTYPE html><html><body style=\"margin:0;padding:0;background-color:#05070f;\">'\n  + '<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#05070f;padding:28px 12px;font-family:Segoe UI,Helvetica,Arial,sans-serif;\"><tr><td align=\"center\">'\n  + '<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:660px;\">'\n  + '<tr><td style=\"background-color:#0b1024;background-image:linear-gradient(135deg,#0b1024 0%,#1e1b4b 55%,#0e7490 100%);border:1px solid #1e293b;border-radius:20px;padding:34px 30px 26px;\">'\n  + '<div style=\"' + label + 'font-size:14px;letter-spacing:4px;color:#67e8f9;font-weight:700;\">&#9670; AI MARKET INTELLIGENCE</div>'\n  + '<div style=\"' + serif + 'font-size:40px;line-height:1.15;font-weight:700;color:#ffffff;margin-top:12px;\">Finance News Digest</div>'\n  + '<div style=\"width:72px;height:3px;line-height:3px;font-size:0;margin-top:14px;border-radius:3px;background-color:#22d3ee;background-image:linear-gradient(90deg,#22d3ee,#c084fc);\">&nbsp;</div>'\n  + '<div style=\"' + label + 'font-size:17px;color:#e0e7ff;margin-top:14px;\">' + dateStr + '</div>'\n  + '<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-top:22px;\"><tr>'\n  + chip('HEADLINES', count, '#0e7490', '#cffafe') + chip('SOURCES', '03', '#7e22ce', '#f3e8ff') + chip('EDITION', edition, '#b45309', '#fef3c7')\n  + '</tr></table>'\n  + '</td></tr>'\n  + '<tr><td style=\"height:20px;line-height:20px;font-size:0;\">&nbsp;</td></tr>'\n  + '<tr><td>' + cards + '</td></tr>'\n  + '<tr><td style=\"padding:18px 8px 6px;text-align:center;' + label + 'font-size:14px;line-height:1.9;letter-spacing:1px;color:#94a3b8;\">'\n  + '// SIGNAL SOURCES: BBC BUSINESS &middot; DAWN &middot; CNBC<br>'\n  + 'Compiled by AI at ' + timeStr + ' PKT &middot; Not investment advice'\n  + '</td></tr>'\n  + '</table></td></tr></table></body></html>';\n\nreturn [{ json: { html } }];"
+      },
+      "id": "5613f1dd-76f1-4e55-8397-42484ee771b5",
+      "name": "Format email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "=Finance News Digest - {{ $now.format('dd LLL yyyy') }}",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "19fa9bf3-814d-4c03-a8de-48bcd9e9dd84",
+      "name": "Send a message",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        112
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "YOUR_CREDENTIAL_NAME"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch all feeds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch all feeds": {
+      "main": [
+        [
+          {
+            "node": "BBC Business",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Dawn Business",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CNBC Finance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BBC Business": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dawn Business": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "CNBC Finance": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Prepare headlines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare headlines": {
+      "main": [
+        [
+          {
+            "node": "Summarize News",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize News": {
+      "main": [
+        [
+          {
+            "node": "Format email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Summarize News",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format email": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "nodeGroups": [
+    {
+      "id": "6f1d170e-ccf8-4f81-9ddf-d290afbcace4",
+      "name": "Collect headlines",
+      "nodeIds": [
+        "1c1167d5-160a-40c4-b1c3-d9c8451fcdee",
+        "000e14be-b8ad-48ac-b2a4-e9b333f9b92d",
+        "dfdae6c9-aff1-41dd-9c1a-a9327a20ed73",
+        "4d0a492f-4cfb-4e01-8b21-f55098a2ab0d",
+        "1202dcbc-f30b-4e1a-88c6-c263bbd46e5c",
+        "b1936993-23ea-4fa3-98a2-a5618b1cc1b4"
+      ],
+      "description": "Pulls the latest stories from BBC, Dawn and CNBC and keeps the newest few from each source"
+    },
+    {
+      "id": "c9bf45e9-88fd-4ba3-8858-3dfbd6b39249",
+      "name": "Deliver daily digest",
+      "nodeIds": [
+        "713c527d-2a59-4b7c-8e45-242bafaaca9b",
+        "38e75d16-b5aa-4678-a29a-57d76e8927af",
+        "5613f1dd-76f1-4e55-8397-42484ee771b5",
+        "19fa9bf3-814d-4c03-a8de-48bcd9e9dd84"
+      ],
+      "description": "AI picks top stories, Pakistan news and market moves, styles the email and sends it to your inbox"
+    }
+  ],
+  "tags": []
+}
